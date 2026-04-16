@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Tomato Disease Detection</title>
+
+    <!-- Bootstrap -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+
+    <style>
+        body {
+            background: #f4f6f9;
+        }
+        .img-box {
+            width: 100%;
+            max-width: 224px;
+            border: 2px solid #28a745;
+            padding: 5px;
+            border-radius: 5px;
+        }
+        .section-title {
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container mt-5">
+    <div class="card shadow-lg">
+
+        <!-- HEADER -->
+        <div class="card-header bg-success text-white text-center">
+            <h2>Tomato Disease Detection</h2>
+            
+        </div>
+
+        <div class="card-body">
+
+            <!-- RESULT -->
+            {% if prediction %}
+            <div class="alert alert-info text-center">
+                <h4>Prediction: <b>{{ prediction }}</b></h4>
+                <p>{{ message }}</p>
+            </div>
+            {% endif %}
+
+            <!-- IMAGE OUTPUT -->
+            {% if image_path %}
+            <div class="row text-center mb-4">
+                <div class="col-md-6">
+                    <h5 class="section-title">Uploaded Image</h5>
+                    <img src="{{ image_path }}" class="img-box">
+                </div>
+
+                <div class="col-md-6">
+                    <h5 class="section-title">Disease Region (Grad-CAM)</h5>
+                    <img src="{{ cam_path }}" class="img-box">
+                </div>
+            </div>
+            {% endif %}
+
+            <hr>
+
+            <div class="row">
+
+                <!-- UPLOAD SECTION -->
+                <div class="col-md-6">
+                    <h5 class="section-title">Upload Leaf Image</h5>
+                    <form method="post" enctype="multipart/form-data">
+                        <input class="form-control" type="file" name="image" required>
+                        <br>
+                        <button class="btn btn-primary btn-block" type="submit">
+                            Predict Disease
+                        </button>
+                    </form>
+                </div>
+
+                <!-- CAMERA SECTION -->
+                <div class="col-md-6">
+                    <h5 class="section-title">Camera Capture</h5>
+                    <video id="video" width="100%" height="240" autoplay class="border rounded"></video>
+                    <br><br>
+                    <button id="captureBtn" class="btn btn-success btn-block">
+                        Capture & Predict
+                    </button>
+                </div>
+
+            </div>
+
+        </div>
+
+        <!-- FOOTER -->
+        <div class="card-footer text-muted text-center">
+            Developed using Flask, TensorFlow & Grad-CAM
+        </div>
+    </div>
+</div>
+
+<script>
+    // CAMERA ACCESS
+    const video = document.getElementById('video');
+    navigator.mediaDevices.getUserMedia({ video: true })
+        .then(stream => video.srcObject = stream);
+
+    // CAPTURE & SEND TO FLASK
+    document.getElementById('captureBtn').addEventListener('click', () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 224;
+        canvas.height = 224;
+
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, 224, 224);
+
+        canvas.toBlob(blob => {
+            const formData = new FormData();
+            formData.append('image', blob, 'camera.jpg');
+
+            fetch('/', { method: 'POST', body: formData })
+                .then(res => res.text())
+                .then(html => {
+                    document.open();
+                    document.write(html);
+                    document.close();
+                });
+        }, 'image/jpeg');
+    });
+
+    // VOICE OUTPUT
+    function speak(text) {
+        const msg = new SpeechSynthesisUtterance(text);
+        window.speechSynthesis.speak(msg);
+    }
+
+    {% if message %}
+    speak("{{ message }}");
+    {% endif %}
+</script>
+
+</body>
+</html>
