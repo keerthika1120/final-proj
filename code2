@@ -1,0 +1,170 @@
+import tensorflow as tf
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.applications import MobileNetV2
+from tensorflow.keras.layers import (
+    Dense,
+    GlobalAveragePooling2D,
+    GlobalMaxPooling2D,
+    Dropout,
+    Conv2D,
+    Multiply,
+    Add,
+    Reshape,
+    Activation,
+    Concatenate
+)
+from tensorflow.keras import backend as K
+from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import Adam
+import os
+
+print("Starting dataset loader...")
+
+# -----------------------------
+# CONFIGURATION
+# -----------------------------
+IMG_SIZE = (224, 224)
+BATCH_SIZE = 32
+EPOCHS = 10
+
+train_dir = "dataset/train"
+val_dir = "dataset/val"
+test_dir = "dataset/test"
+
+# -----------------------------
+# DATA GENERATORS
+# -----------------------------
+train_datagen = ImageDataGenerator(
+    rescale=1./255,
+    rotation_range=20,
+    zoom_range=0.2,
+    width_shift_range=0.1,
+    height_shift_range=0.1,
+    horizontal_flip=True
+)
+
+val_datagen = ImageDataGenerator(rescale=1./255)
+test_datagen = ImageDataGenerator(rescale=1./255)
+
+train_gen = train_datagen.flow_from_directory(
+    train_dir,
+    target_size=IMG_SIZE,
+    batch_size=BATCH_SIZE,
+    class_mode="categorical"
+)
+
+val_gen = val_datagen.flow_from_directory(
+    val_dir,
+    target_size=IMG_SIZE,
+    batch_size=BATCH_SIZE,
+    class_mode="categorical"
+)
+
+test_gen = test_datagen.flow_from_directory(
+    test_dir,
+    target_size=IMG_SIZE,
+    batch_size=BATCH_SIZE,
+    class_mode="categorical",
+    shuffle=False
+)
+
+NUM_CLASSES = train_gen.num_classes
+print("Number of classes:", NUM_CLASSES)
+print("Class labels:", train_gen.class_indices)
+
+# -----------------------------
+# CBAM IMPLEMENTATION (SAFE)
+# -----------------------------
+def channel_attention(input_feature, ratio=8):
+    channel = input_feature.shape[-1]
+
+    shared_dense_one = Dense(channel // ratio, activation="relu")
+    shared_dense_two = Dense(channel)
+
+    avg_pool = GlobalAveragePooling2D()(input_feature)
+    avg_pool = Reshape((1, 1, channel))(avg_pool)
+    avg_pool = shared_dense_two(shared_dense_one(avg_pool))
+
+    max_pool = GlobalMaxPooling2D()(input_feature)
+    max_pool = Reshape((1, 1, channel))(max_pool)
+    max_pool = shared_dense_two(shared_dense_one(max_pool))
+
+    cbam_feature = Add()([avg_pool, max_pool])
+    cbam_feature = Activation("sigmoid")(cbam_feature)
+
+    return Multiply()([input_feature, cbam_feature])
+
+
+def spatial_attention(input_feature):
+    avg_pool = tf.reduce_mean(input_feature, axis=-1, keepdims=True)
+    max_pool = tf.reduce_max(input_feature, axis=-1, keepdims=True)
+
+    concat = Concatenate(axis=-1)([avg_pool, max_pool])
+    cbam_feature = Conv2D(
+        filters=1,
+        kernel_size=7,
+        padding="same",
+        activation="sigmoid"
+    )(concat)
+
+    return Multiply()([input_feature, cbam_feature])
+
+
+def cbam_block(feature):
+    feature = channel_attention(feature)
+    feature = spatial_attention(feature)
+    return feature
+
+# -----------------------------
+# MODEL: MobileNetV2 + CBAM
+# -----------------------------
+base_model = MobileNetV2(
+    weights="imagenet",
+    include_top=False,
+    input_shape=(224, 224, 3)
+)
+
+base_model.trainable = False
+
+x = base_model.output
+x = cbam_block(x)
+x = GlobalAveragePooling2D()(x)
+
+x = Dense(256, activation="relu")(x)
+x = Dropout(0.5)(x)
+output = Dense(NUM_CLASSES, activation="softmax")(x)
+
+model = Model(inputs=base_model.input, outputs=output)
+
+model.compile(
+    optimizer=Adam(learning_rate=0.0001),
+    loss="categorical_crossentropy",
+    metrics=["accuracy"]
+)
+
+model.summary()
+
+# -----------------------------
+# TRAINING
+# -----------------------------
+print("Starting training...")
+model.fit(
+    train_gen,
+    validation_data=val_gen,
+    epochs=EPOCHS
+)
+
+# -----------------------------
+# EVALUATION
+# -----------------------------
+print("Evaluating on test data...")
+test_loss, test_acc = model.evaluate(test_gen)
+print("Test Accuracy:", test_acc)
+
+# -----------------------------
+# SAVE MODEL
+# -----------------------------
+os.makedirs("model", exist_ok=True)
+model.save("model/tomato_disease_model.h5")
+
+print("Model saved successfully!")
