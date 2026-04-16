@@ -1,0 +1,63 @@
+import tensorflow as tf
+import numpy as np
+from tensorflow.keras.preprocessing import image
+import os
+
+# -----------------------------
+# CONFIG
+# -----------------------------
+IMG_SIZE = (224, 224)
+MODEL_PATH = "model/tomato_disease_model.h5"
+
+# -----------------------------
+# LOAD MODEL
+# -----------------------------
+model = tf.keras.models.load_model(MODEL_PATH)
+print("Model loaded successfully")
+
+# -----------------------------
+# CLASS LABELS (AUTO)
+# -----------------------------
+class_names = list(model.class_names) if hasattr(model, 'class_names') else None
+
+# If class_names is None, manually define using training order
+class_names = [
+    'Tomato_Bacterial_spot',
+    'Tomato_Early_blight',
+    'Tomato_Late_blight',
+    'Tomato_Leaf_Mold',
+    'Tomato_Septoria_leaf_spot',
+    'Tomato_Spider_mites',
+    'Tomato_Target_Spot',
+    'Tomato_Tomato_Yellow_Leaf_Curl_Virus',
+    'Tomato_Tomato_mosaic_virus',
+    'Tomato_healthy'
+]
+
+# -----------------------------
+# PREDICTION FUNCTION
+# -----------------------------
+def predict_disease(img_path):
+    img = image.load_img(img_path, target_size=IMG_SIZE)
+    img_array = image.img_to_array(img)
+    img_array = img_array / 255.0
+    img_array = np.expand_dims(img_array, axis=0)
+
+    predictions = model.predict(img_array)
+    predicted_index = np.argmax(predictions)
+    confidence = np.max(predictions) * 100
+
+    return class_names[predicted_index], confidence
+
+# -----------------------------
+# TEST PREDICTION
+# -----------------------------
+if __name__ == "__main__":
+    test_image_path = "sample.jpg"  # put any tomato leaf image here
+
+    if os.path.exists(test_image_path):
+        disease, conf = predict_disease(test_image_path)
+        print(f"Predicted Disease: {disease}")
+        print(f"Confidence: {conf:.2f}%")
+    else:
+        print("Please add a test image named sample.jpg")
